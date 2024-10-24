@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Proxy_cli",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/Users/faye/Desktop/litellm/litellm/proxy/proxy_cli.py",
+            "console": "integratedTerminal",
+            "pythonPath": "/Users/faye/opt/anaconda3/envs/litellm/bin/python", 
+            "envFile": "/Users/faye/Desktop/litellm/takin/.env"
+        }
+    ]
+}

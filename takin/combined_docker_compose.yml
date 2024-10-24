@@ -1,0 +1,44 @@
+version: "3.11"
+services:
+  litellm:
+    build:
+      context: .
+      args:
+        target: runtime
+    image: ghcr.io/berriai/litellm:main-stable
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    command:
+      - "--config=/app/config.yaml"
+    ports:
+      - "80:4000"
+    environment:
+        STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
+    env_file:
+      - .env
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    restart: always
+
+volumes:
+  prometheus_data:
+    driver: local
+
+# Prometheus configuration
+# global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'litellm'
+    static_configs:
+      - targets: ['litellm:4000']  # Assuming Litellm exposes metrics at port 4000

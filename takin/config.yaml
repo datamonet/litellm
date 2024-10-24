@@ -1,0 +1,15 @@
+assistant_settings:
+  custom_llm_provider: openai
+  litellm_params:
+    api_key: os.environ/OPENAI_API_KEY
+
+
+
+model_list:
+  - model_name: glm-4-flash
+    litellm_params:
+      model: openai/glm-4-flash
+      api_key: os.environ/ZHIPU_API_KEY
+      api_base: os.environ/ZHIPU_BASE_PATH
+      input_cost_per_token: 0.00
+      output_cost_per_token: 0.00
