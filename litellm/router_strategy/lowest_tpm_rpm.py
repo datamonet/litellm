@@ -14,23 +14,11 @@ from litellm import token_counter
 from litellm._logging import verbose_router_logger
 from litellm.caching.caching import DualCache
 from litellm.integrations.custom_logger import CustomLogger
+from litellm.types.utils import LiteLLMPydanticObjectBase
 from litellm.utils import print_verbose
 
 
-class LiteLLMBase(BaseModel):
-    """
-    Implements default functions, all pydantic objects should have.
-    """
-
-    def json(self, **kwargs):  # type: ignore
-        try:
-            return self.model_dump()  # noqa
-        except Exception:
-            # if using pydantic v1
-            return self.dict()
-
-
-class RoutingArgs(LiteLLMBase):
+class RoutingArgs(LiteLLMPydanticObjectBase):
     ttl: int = 1 * 60  # 1min (RPM/TPM expire key)
 
 
@@ -139,18 +127,22 @@ class LowestTPMLoggingHandler(CustomLogger):
                 # update cache
 
                 ## TPM
-                request_count_dict = self.router_cache.get_cache(key=tpm_key) or {}
+                request_count_dict = (
+                    await self.router_cache.async_get_cache(key=tpm_key) or {}
+                )
                 request_count_dict[id] = request_count_dict.get(id, 0) + total_tokens
 
-                self.router_cache.set_cache(
+                await self.router_cache.async_set_cache(
                     key=tpm_key, value=request_count_dict, ttl=self.routing_args.ttl
                 )
 
                 ## RPM
-                request_count_dict = self.router_cache.get_cache(key=rpm_key) or {}
+                request_count_dict = (
+                    await self.router_cache.async_get_cache(key=rpm_key) or {}
+                )
                 request_count_dict[id] = request_count_dict.get(id, 0) + 1
 
-                self.router_cache.set_cache(
+                await self.router_cache.async_set_cache(
                     key=rpm_key, value=request_count_dict, ttl=self.routing_args.ttl
                 )
 

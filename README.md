@@ -113,7 +113,7 @@ for part in response:
 
 ## Logging Observability ([Docs](https://docs.litellm.ai/docs/observability/callbacks))
 
-LiteLLM exposes pre defined callbacks to send data to Lunary, Langfuse, DynamoDB, s3 Buckets, Helicone, Promptlayer, Traceloop, Athina, Slack
+LiteLLM exposes pre defined callbacks to send data to Lunary, Langfuse, DynamoDB, s3 Buckets, Helicone, Promptlayer, Traceloop, Athina, Slack, MLflow
 
 ```python
 from litellm import completion
@@ -271,6 +271,7 @@ curl 'http://0.0.0.0:4000/key/generate' \
 | [voyage ai](https://docs.litellm.ai/docs/providers/voyage)                          |                                                         |                                                                                 |                                                                                     |                                                                                   | ✅                                                                             |                                                                         |
 | [xinference [Xorbits Inference]](https://docs.litellm.ai/docs/providers/xinference) |                                                         |                                                                                 |                                                                                     |                                                                                   | ✅                                                                             |                                                                         |
 | [FriendliAI](https://docs.litellm.ai/docs/providers/friendliai)                              | ✅                                                       | ✅                                                                               | ✅                                                                                   | ✅                                                                                 |                                                                               |                                                                         |
+| [Galadriel](https://docs.litellm.ai/docs/providers/galadriel)                              | ✅                                                       | ✅                                                                               | ✅                                                                                   | ✅                                                                                 |                                                                               |                                                                         |
 
 [**Read the Docs**](https://docs.litellm.ai/docs/)
 
@@ -305,6 +306,36 @@ Step 4: Submit a PR with your changes! 🚀
 - push your fork to your GitHub repo
 - submit a PR from there
 
+### Building LiteLLM Docker Image 
+
+Follow these instructions if you want to build / run the LiteLLM Docker Image yourself.
+
+Step 1: Clone the repo
+
+```
+git clone https://github.com/BerriAI/litellm.git
+```
+
+Step 2: Build the Docker Image
+
+Build using Dockerfile.non_root
+```
+docker build -f docker/Dockerfile.non_root -t litellm_test_image .
+```
+
+Step 3: Run the Docker Image
+
+Make sure config.yaml is present in the root directory. This is your litellm proxy config file.
+```
+docker run \
+    -v $(pwd)/proxy_config.yaml:/app/config.yaml \
+    -e DATABASE_URL="postgresql://xxxxxxxx" \
+    -e LITELLM_MASTER_KEY="sk-1234" \
+    -p 4000:4000 \
+    litellm_test_image \
+    --config /app/config.yaml --detailed_debug
+```
+
 # Enterprise
 For companies that need better security, user management and professional support
 
@@ -317,6 +348,20 @@ This covers:
 - ✅ **Professional Support - Dedicated discord + slack**
 - ✅ **Custom SLAs**
 - ✅ **Secure access with Single Sign-On**
+
+# Code Quality / Linting
+
+LiteLLM follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
+
+We run: 
+- Ruff for [formatting and linting checks](https://github.com/BerriAI/litellm/blob/e19bb55e3b4c6a858b6e364302ebbf6633a51de5/.circleci/config.yml#L320)
+- Mypy + Pyright for typing [1](https://github.com/BerriAI/litellm/blob/e19bb55e3b4c6a858b6e364302ebbf6633a51de5/.circleci/config.yml#L90), [2](https://github.com/BerriAI/litellm/blob/e19bb55e3b4c6a858b6e364302ebbf6633a51de5/.pre-commit-config.yaml#L4)
+- Black for [formatting](https://github.com/BerriAI/litellm/blob/e19bb55e3b4c6a858b6e364302ebbf6633a51de5/.circleci/config.yml#L79)
+- isort for [import sorting](https://github.com/BerriAI/litellm/blob/e19bb55e3b4c6a858b6e364302ebbf6633a51de5/.pre-commit-config.yaml#L10)
+
+
+If you have suggestions on how to improve the code quality feel free to open an issue or a PR.
+
 
 # Support / talk with founders
 

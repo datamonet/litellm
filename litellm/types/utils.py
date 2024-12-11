@@ -33,6 +33,28 @@ def _generate_id():  # private helper function
     return "chatcmpl-" + str(uuid.uuid4())
 
 
+class LiteLLMPydanticObjectBase(BaseModel):
+    """
+    Implements default functions, all pydantic objects should have.
+    """
+
+    def json(self, **kwargs):  # type: ignore
+        try:
+            return self.model_dump(**kwargs)  # noqa
+        except Exception:
+            # if using pydantic v1
+            return self.dict(**kwargs)
+
+    def fields_set(self):
+        try:
+            return self.model_fields_set  # noqa
+        except Exception:
+            # if using pydantic v1
+            return self.__fields_set__
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
 class LiteLLMCommonStrings(Enum):
     redacted_by_litellm = "redacted by litellm. 'litellm.turn_off_message_logging=True'"
 
@@ -106,6 +128,9 @@ class ModelInfo(TypedDict, total=False):
     supports_prompt_caching: Optional[bool]
     supports_audio_input: Optional[bool]
     supports_audio_output: Optional[bool]
+    supports_pdf_input: Optional[bool]
+    tpm: Optional[int]
+    rpm: Optional[int]
 
 
 class GenericStreamingChunk(TypedDict, total=False):
@@ -141,6 +166,7 @@ class CallTypes(Enum):
     rerank = "rerank"
     arerank = "arerank"
     arealtime = "_arealtime"
+    pass_through = "pass_through_endpoint"
 
 
 CallTypesLiteral = Literal[
@@ -745,12 +771,12 @@ class StreamingChatCompletionChunk(OpenAIChatCompletionChunk):
         super().__init__(**kwargs)
 
 
-class ModelResponse(OpenAIObject):
+from openai.types.chat import ChatCompletionChunk
+
+
+class ModelResponseBase(OpenAIObject):
     id: str
     """A unique identifier for the completion."""
-
-    choices: List[Union[Choices, StreamingChoices]]
-    """The list of completion choices the model generated for the input prompt."""
 
     created: int
     """The Unix timestamp (in seconds) of when the completion was created."""
@@ -771,6 +797,55 @@ class ModelResponse(OpenAIObject):
     _hidden_params: dict = {}
 
     _response_headers: Optional[dict] = None
+
+
+class ModelResponseStream(ModelResponseBase):
+    choices: List[StreamingChoices]
+
+    def __init__(
+        self,
+        choices: Optional[List[Union[StreamingChoices, dict, BaseModel]]] = None,
+        **kwargs,
+    ):
+        if choices is not None and isinstance(choices, list):
+            new_choices = []
+            for choice in choices:
+                _new_choice = None
+                if isinstance(choice, StreamingChoices):
+                    _new_choice = choice
+                elif isinstance(choice, dict):
+                    _new_choice = StreamingChoices(**choice)
+                elif isinstance(choice, BaseModel):
+                    _new_choice = StreamingChoices(**choice.model_dump())
+                new_choices.append(_new_choice)
+            kwargs["choices"] = new_choices
+        else:
+            kwargs["choices"] = [StreamingChoices()]
+        super().__init__(**kwargs)
+
+    def __contains__(self, key):
+        # Define custom behavior for the 'in' operator
+        return hasattr(self, key)
+
+    def get(self, key, default=None):
+        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
+        return getattr(self, key, default)
+
+    def __getitem__(self, key):
+        # Allow dictionary-style access to attributes
+        return getattr(self, key)
+
+    def json(self, **kwargs):  # type: ignore
+        try:
+            return self.model_dump()  # noqa
+        except Exception:
+            # if using pydantic v1
+            return self.dict()
+
+
+class ModelResponse(ModelResponseBase):
+    choices: List[Union[Choices, StreamingChoices]]
+    """The list of completion choices the model generated for the input prompt."""
 
     def __init__(
         self,
@@ -1145,7 +1220,7 @@ class ImageObject(OpenAIImage):
     url: Optional[str] = None
     revised_prompt: Optional[str] = None
 
-    def __init__(self, b64_json=None, url=None, revised_prompt=None):
+    def __init__(self, b64_json=None, url=None, revised_prompt=None, **kwargs):
         super().__init__(b64_json=b64_json, url=url, revised_prompt=revised_prompt)  # type: ignore
 
     def __contains__(self, key):
@@ -1177,12 +1252,15 @@ from openai.types.images_response import ImagesResponse as OpenAIImageResponse
 
 class ImageResponse(OpenAIImageResponse):
     _hidden_params: dict = {}
+    usage: Usage
 
     def __init__(
         self,
         created: Optional[int] = None,
         data: Optional[List[ImageObject]] = None,
         response_ms=None,
+        usage: Optional[Usage] = None,
+        hidden_params: Optional[dict] = None,
     ):
         if response_ms:
             _response_ms = response_ms
@@ -1204,8 +1282,13 @@ class ImageResponse(OpenAIImageResponse):
                 _data.append(ImageObject(**d))
             elif isinstance(d, BaseModel):
                 _data.append(ImageObject(**d.model_dump()))
-        super().__init__(created=created, data=_data)
-        self.usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        _usage = usage or Usage(
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+        )
+        super().__init__(created=created, data=_data, usage=_usage)  # type: ignore
+        self._hidden_params = hidden_params or {}
 
     def __contains__(self, key):
         # Define custom behavior for the 'in' operator
@@ -1265,11 +1348,6 @@ class TranscriptionResponse(OpenAIObject):
 
 
 class GenericImageParsingChunk(TypedDict):
-    # {
-    #         "type": "base64",
-    #         "media_type": f"image/{image_format}",
-    #         "data": base64_data,
-    #     }
     type: str
     media_type: str
     data: str
@@ -1282,8 +1360,10 @@ class ResponseFormatChunk(TypedDict, total=False):
 
 all_litellm_params = [
     "metadata",
+    "litellm_trace_id",
     "tags",
     "acompletion",
+    "aimg_generation",
     "atext_completion",
     "text_completion",
     "caching",
@@ -1306,6 +1386,7 @@ all_litellm_params = [
     "num_retries",
     "context_window_fallback_dict",
     "retry_policy",
+    "retry_strategy",
     "roles",
     "final_prompt_value",
     "bos_token",
@@ -1349,6 +1430,8 @@ all_litellm_params = [
     "ensure_alternating_roles",
     "assistant_continue_message",
     "user_continue_message",
+    "fallback_depth",
+    "max_fallbacks",
 ]
 
 
@@ -1404,16 +1487,20 @@ class AdapterCompletionStreamWrapper:
             raise StopAsyncIteration
 
 
-class StandardLoggingMetadata(TypedDict):
+class StandardLoggingUserAPIKeyMetadata(TypedDict):
+    user_api_key_hash: Optional[str]  # hash of the litellm virtual key used
+    user_api_key_alias: Optional[str]
+    user_api_key_org_id: Optional[str]
+    user_api_key_team_id: Optional[str]
+    user_api_key_user_id: Optional[str]
+    user_api_key_team_alias: Optional[str]
+
+
+class StandardLoggingMetadata(StandardLoggingUserAPIKeyMetadata):
     """
     Specific metadata k,v pairs logged to integration for easier cost tracking
     """
 
-    user_api_key_hash: Optional[str]  # hash of the litellm virtual key used
-    user_api_key_alias: Optional[str]
-    user_api_key_team_id: Optional[str]
-    user_api_key_user_id: Optional[str]
-    user_api_key_team_alias: Optional[str]
     spend_logs_metadata: Optional[
         dict
     ]  # special param to log k,v pairs to spendlogs for a call
@@ -1421,12 +1508,19 @@ class StandardLoggingMetadata(TypedDict):
     requester_metadata: Optional[dict]
 
 
+class StandardLoggingAdditionalHeaders(TypedDict, total=False):
+    x_ratelimit_limit_requests: int
+    x_ratelimit_limit_tokens: int
+    x_ratelimit_remaining_requests: int
+    x_ratelimit_remaining_tokens: int
+
+
 class StandardLoggingHiddenParams(TypedDict):
     model_id: Optional[str]
     cache_key: Optional[str]
     api_base: Optional[str]
     response_cost: Optional[str]
-    additional_headers: Optional[dict]
+    additional_headers: Optional[StandardLoggingAdditionalHeaders]
 
 
 class StandardLoggingModelInformation(TypedDict):
@@ -1456,6 +1550,7 @@ StandardLoggingPayloadStatus = Literal["success", "failure"]
 
 class StandardLoggingPayload(TypedDict):
     id: str
+    trace_id: str  # Trace multiple LLM calls belonging to same overall request (e.g. fallbacks/retries)
     call_type: str
     response_cost: float
     response_cost_failure_debug_info: Optional[
@@ -1528,3 +1623,30 @@ class StandardCallbackDynamicParams(TypedDict, total=False):
     # GCS dynamic params
     gcs_bucket_name: Optional[str]
     gcs_path_service_account: Optional[str]
+
+    # Langsmith dynamic params
+    langsmith_api_key: Optional[str]
+    langsmith_project: Optional[str]
+    langsmith_base_url: Optional[str]
+
+    # Logging settings
+    turn_off_message_logging: Optional[bool]  # when true will not log messages
+
+
+class KeyGenerationConfig(TypedDict, total=False):
+    required_params: List[
+        str
+    ]  # specify params that must be present in the key generation request
+
+
+class TeamUIKeyGenerationConfig(KeyGenerationConfig):
+    allowed_team_member_roles: List[str]
+
+
+class PersonalUIKeyGenerationConfig(KeyGenerationConfig):
+    allowed_user_roles: List[str]
+
+
+class StandardKeyGenerationConfig(TypedDict, total=False):
+    team_key_generation: TeamUIKeyGenerationConfig
+    personal_key_generation: PersonalUIKeyGenerationConfig
